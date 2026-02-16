@@ -47,7 +47,18 @@ dashboard
     res.render(VIEWS + "disconnect");
   })
   .post(function (req, res, next) {
-    disconnect(req.blog.id, next);
+    disconnect(req.blog.id, function (err, warning) {
+      if (err) return next(err);
+
+      if (warning) {
+        return res.message(
+          req.baseUrl,
+          "Disconnected from iCloud. Remote cleanup will retry in the background."
+        );
+      }
+
+      res.message(req.baseUrl, "Disconnected from iCloud");
+    });
   });
 
 dashboard
