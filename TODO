@@ -2,6 +2,8 @@ Remove temporary lazy backfill fallback in app/models/entries/pathIndex.js (`ens
 
 Fix bug with Google Docs when disconnecting a site from Google Drive on Blot then reconnecting the site to Google Drive. 
 
+Work out what causes the '-2' suffix on posts when renaming a huge folder?
+
 Move blot GitHub to its own organization
 
 problem: allEntries takes a huge time to render on sites with lots of posts
