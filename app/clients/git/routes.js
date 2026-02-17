@@ -5,6 +5,7 @@ var disconnect = require("./disconnect");
 var pushover = require("pushover");
 var sync = require("./sync");
 var dataDir = require("./dataDir");
+var Blog = require("models/blog");
 var debug = require("debug")("blot:clients:git:routes");
 var repos = pushover(dataDir, { autoCreate: true });
 repos.on("error", function (err) {
@@ -101,6 +102,38 @@ dashboard.get("/disconnect", function (req, res) {
 dashboard.post("/disconnect", function (req, res, next) {
   req.blog.client = "";
   disconnect(req.blog.id, next);
+});
+
+site.use("/end/:gitHandle.git", function (req, res, next) {
+  Blog.get({ handle: req.params.gitHandle }, function (err, blog) {
+    if (err || !blog) return next();
+
+    if (blog.handle !== req.params.gitHandle) {
+      var oldPathPrefix =
+        "/clients/git/end/" + req.params.gitHandle + ".git";
+      var originalUrl = req.originalUrl || "";
+      var trailingPathAndQuery = "";
+
+      if (originalUrl.indexOf(oldPathPrefix) === 0) {
+        trailingPathAndQuery = originalUrl.slice(oldPathPrefix.length);
+      } else {
+        trailingPathAndQuery = req.url || "";
+      }
+
+      return res
+        .redirect(308,
+          req.protocol +
+            "://" +
+            req.get("host") +
+            "/clients/git/end/" +
+            blog.handle +
+            ".git" +
+            trailingPathAndQuery
+        );
+    }
+
+    return next();
+  });
 });
 
 site.use("/end/:gitHandle.git", authenticate);

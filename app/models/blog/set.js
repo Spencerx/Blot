@@ -13,6 +13,7 @@ var normalizeImageExif = require("./util/imageExif").normalize;
 var normalizeConverters = require("./util/converters").normalize;
 var updateCdnManifest = require("../template/util/updateCdnManifest");
 var forkSiteTemplate = require("../template/util/forkSiteTemplate");
+var renameGitRepo = require("clients/git/renameRepo");
 var promisify = require("util").promisify;
 var updateCdnManifestAsync = promisify(updateCdnManifest);
 
@@ -191,6 +192,18 @@ module.exports = function (blogID, blog, callback) {
           } catch (updateError) {
             // for now, do nothing
             console.log('Blog.set', blogID, 'Error updating template CDN manifest', updateError);
+          }
+        }
+
+        if (former.handle && latest.handle) {
+          var usesGit = former.client === "git" || latest.client === "git";
+
+          if (usesGit) {
+            try {
+              await renameGitRepo(former.handle, latest.handle);
+            } catch (renameError) {
+              return callback(renameError);
+            }
           }
         }
 
