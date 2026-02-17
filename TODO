@@ -401,8 +401,6 @@ Fix bug with accessibility issues with scrolling and code blocks and tell [Eli](
 
 ---
 
-Make it possible to disable processing of image files into individual posts and tell [Brendan](https://mail.google.com/mail/u/0/#inbox/FMfcgzQdzvsdKBgDQqPRcBzTJKVPqNfr)
-
 Investigate issues with image heavy obsidian vaults
 
 Investigate obsidian and ia writer wikilink resolution issues
