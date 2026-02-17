@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Adds latency+jitter toxic to the redis proxy. Called 10s after start so the server comes up fast.
+# Adds latency+jitter toxic to the redis proxy.
 set -euo pipefail
 
 LATENCY_MS="${BLOT_TOXIPROXY_LATENCY_MS:-6}"
@@ -11,4 +11,4 @@ curl -sf -X POST "${API}/proxies/redis/toxics" \
   -d "{\"name\":\"redis-latency\",\"type\":\"latency\",\"attributes\":{\"latency\":${LATENCY_MS},\"jitter\":${JITTER_MS}}}" \
   >/dev/null
 
-echo "[toxiproxy] Latency now active: ${LATENCY_MS}ms + jitter ${JITTER_MS}ms (enabled 10s after start)"
+echo "[toxiproxy] Latency now active: ${LATENCY_MS}ms + jitter ${JITTER_MS}ms (enabled after server readiness)"
