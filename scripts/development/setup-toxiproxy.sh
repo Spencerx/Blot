@@ -45,10 +45,10 @@ fi
 [ -n "$DEBUG" ] && echo "[toxiproxy] API ready: $last_out"
 
 # Toxiproxy image is FROM scratch (no shell), so use HTTP API from host instead of exec.
-echo "[toxiproxy] Configuring redis proxy via API ..."
+# Create proxy only; latency toxic is added 10s after start (see start.sh + enable-toxiproxy-latency.sh).
+echo "[toxiproxy] Configuring redis proxy via API (latency enabled 10s after start) ..."
 curl -sf -X DELETE "${API}/proxies/redis" >/dev/null 2>&1 || true
 curl -sf -X POST "${API}/proxies" -H "Content-Type: application/json" -d "{\"name\":\"redis\",\"listen\":\"0.0.0.0:6379\",\"upstream\":\"redis:6379\"}" >/dev/null
-curl -sf -X POST "${API}/proxies/redis/toxics" -H "Content-Type: application/json" -d "{\"name\":\"redis-latency\",\"type\":\"latency\",\"attributes\":{\"latency\":${LATENCY_MS},\"jitter\":${JITTER_MS}}}" >/dev/null
 
-echo "[toxiproxy] Ready: node-app -> toxiproxy:6379 -> redis:6379 (latency ${LATENCY_MS}ms + jitter ${JITTER_MS}ms)"
+echo "[toxiproxy] Ready: node-app -> toxiproxy:6379 -> redis:6379 (latency ${LATENCY_MS}ms + jitter ${JITTER_MS}ms in 10s)"
 echo "[toxiproxy] Note: packet loss/reorder (tc netem) skipped — image has no shell; set BLOT_USE_TOXIPROXY=false or ignore."

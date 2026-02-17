@@ -68,13 +68,18 @@ FOLDER_PID=$!
 compose up --build -d
 
 if [ "${BLOT_USE_TOXIPROXY:-true}" = "true" ]; then
-  echo "[start] Configuring toxiproxy"
+  echo "[start] Configuring toxiproxy (latency will be enabled in 10s)"
   bash "$TOXIPROXY_SETUP"
 fi
 
 # start logs in background to avoid 'exit status 130' noise on Ctrl-C
 compose logs -f --no-log-prefix node-app &
 LOGS_PID=$!
+
+# when using toxiproxy, enable latency after 10s so server starts fast then gets simulated latency
+if [ "${BLOT_USE_TOXIPROXY:-true}" = "true" ]; then
+  ( sleep 10 && bash "$DIR/scripts/development/enable-toxiproxy-latency.sh" ) &
+fi
 
 SHUTTING_DOWN=0
 cleanup() {
