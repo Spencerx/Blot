@@ -1,3 +1,5 @@
+Why is the magazine template loading a page of entries for each request? I think it's the page retrieve variable...
+
 Fix bug with Google Docs when disconnecting a site from Google Drive on Blot then reconnecting the site to Google Drive. 
 
 I'm concerned that malicious webhooks could be abused to delete sites
