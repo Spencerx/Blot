@@ -12,6 +12,7 @@ const shouldIgnoreFile = require("clients/util/shouldIgnoreFile");
 const database = require("../database");
 const config = require("config");
 const maxFileSize = config.icloud.maxFileSize; // Maximum file size for iCloud uploads in bytes
+const RECURSIVE_LIST_TIMEOUT_MS = 90 * 1000;
 
 module.exports = async (blogID, publish, update) => {
   if (!publish)
@@ -30,18 +31,40 @@ module.exports = async (blogID, publish, update) => {
     placeholdersCreated: 0,
   };
 
+  const recursiveListStart = Date.now();
   try {
-    publish("Syncing folder tree");
+    publish(
+      "Syncing folder tree",
+      `(timeout: ${Math.round(RECURSIVE_LIST_TIMEOUT_MS / 1000)}s)`
+    );
     await remoteRecursiveList(blogID, "/");
+    const elapsedMs = Date.now() - recursiveListStart;
+    publish(
+      "Synced folder tree",
+      `(${Math.round(elapsedMs / 1000)}s elapsed, timeout: ${Math.round(
+        RECURSIVE_LIST_TIMEOUT_MS / 1000
+      )}s)`
+    );
   } catch (error) {
-    console.error("Failed to sync folder tree", error);
-    publish("Failed to sync folder tree", error.message);
+    const elapsedMs = Date.now() - recursiveListStart;
+    console.error(
+      "Failed to sync folder tree",
+      {
+        elapsedMs,
+        timeoutMs: RECURSIVE_LIST_TIMEOUT_MS,
+        error,
+      }
+    );
+    publish(
+      "Failed to sync folder tree",
+      `${error.message} (${Math.round(elapsedMs / 1000)}s elapsed, timeout: ${Math.round(
+        RECURSIVE_LIST_TIMEOUT_MS / 1000
+      )}s)`
+    );
   }
 
   const walk = async (dir) => {
-
     console.log(clfdate(), `Syncing folder: ${dir}`);
-    
     const [remoteContents, localContents] = await Promise.all([
       remoteReaddir(blogID, dir),
       localReaddir(localPath(blogID, dir)),
