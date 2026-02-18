@@ -279,6 +279,8 @@ Fix bug with link format using filename and [follow up with yct](https://mail.go
 
 Fix bug with light mode colors and tell [Gary](https://mail.google.com/mail/u/0/#inbox/FMfcgzGwJSCRWXMlsPRVBsnrcRcbMklc)
 
+Fix bug with placeholder files when switching clients: DATA LOSS, BLOT WILL NOT TRANSFER THE ORIGINAL FILE REPRESENTED BY A PLACEHOLDER.
+
 Fix bugs with git client
 - Investigate a bug with git client credentials triggered when you have two sites using git on one account, and delete one of the sites
 - Work out how to pipe custom error messages down
