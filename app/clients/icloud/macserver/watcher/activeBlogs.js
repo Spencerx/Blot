@@ -1,15 +1,51 @@
-const activeBlogs = new Set();
+const BLOG_WATCHER_STATES = {
+  STARTING: "starting",
+  READY: "ready",
+  INACTIVE: "inactive",
+};
+
+const blogStates = new Map();
+
+const setState = (blogID, state) => {
+  blogStates.set(blogID, state);
+};
+
+const markStarting = (blogID) => {
+  setState(blogID, BLOG_WATCHER_STATES.STARTING);
+};
 
 const markActive = (blogID) => {
-  activeBlogs.add(blogID);
+  setState(blogID, BLOG_WATCHER_STATES.READY);
 };
 
 const markInactive = (blogID) => {
-  activeBlogs.delete(blogID);
+  setState(blogID, BLOG_WATCHER_STATES.INACTIVE);
 };
 
-const isActive = (blogID) => activeBlogs.has(blogID);
+const isActive = (blogID) =>
+  blogStates.get(blogID) === BLOG_WATCHER_STATES.READY;
 
-const listActive = () => Array.from(activeBlogs);
+const isStarting = (blogID) =>
+  blogStates.get(blogID) === BLOG_WATCHER_STATES.STARTING;
 
-export { markActive, markInactive, isActive, listActive };
+const listActive = () => {
+  const activeBlogs = [];
+
+  for (const [blogID, state] of blogStates.entries()) {
+    if (state === BLOG_WATCHER_STATES.READY) {
+      activeBlogs.push(blogID);
+    }
+  }
+
+  return activeBlogs;
+};
+
+export {
+  BLOG_WATCHER_STATES,
+  markStarting,
+  markActive,
+  markInactive,
+  isActive,
+  isStarting,
+  listActive,
+};
