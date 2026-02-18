@@ -37,6 +37,7 @@ import {
 import { realpath } from "fs/promises";
 import path from "path";
 import shouldIgnore from "./shouldIgnore.js";
+import { isActive, markActive, markInactive } from "./activeBlogs.js";
 
 async function exactCaseViaRealpath(p) {
   const resolved = await realpath(p);
@@ -179,6 +180,11 @@ const handleFileEvent = async (event, blogID, filePath) => {
 
 
 const reconcileFsWatchEvent = async (blogID, pathInBlogDirectory) => {
+  if (!isActive(blogID)) {
+    console.log(clfdate(), `Dropping fs.watch event for inactive blogID: ${blogID}`);
+    return;
+  }
+
   // This will skip blog directory deletions
   // but that's OK!
   if (!pathInBlogDirectory) {
@@ -292,6 +298,7 @@ const initialize = async () => {
 const watch = async (blogID) => {
   if (blogWatchers.has(blogID)) {
     console.warn(clfdate(), `Already watching blog folder: ${blogID}`);
+    markActive(blogID);
     return;
   }
 
@@ -354,6 +361,7 @@ const watch = async (blogID) => {
     .on("error", (error) => console.error(clfdate(), `Watcher error: ${error}`));
 
   blogWatchers.set(blogID, watcher);
+  markActive(blogID);
 };
 
 // Unwatches a specific blog folder
@@ -361,12 +369,14 @@ const unwatch = async (blogID) => {
   const watcher = blogWatchers.get(blogID);
   if (!watcher) {
     console.warn(clfdate(), `No active watcher for blog folder: ${blogID}`);
+    markInactive(blogID);
     return;
   }
 
   console.log(clfdate(), `Stopping watcher for blog folder: ${blogID}`);
   await watcher.close();
   blogWatchers.delete(blogID);
+  markInactive(blogID);
 };
 
 export { initialize, unwatch, watch, startFsWatch, stopFsWatch };
