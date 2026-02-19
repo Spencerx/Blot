@@ -1,3 +1,4 @@
+Fix bug uploading files in subfolders on the dashboard
 
 I'm concerned that malicious webhooks could be abused to delete sites
 - operator must be the only person to trigger the delete overdue or cancelled site flow.
