@@ -25,7 +25,8 @@
     <div class="folder-top"></div>
     {{/root}}
 
-    <div class="folder-box {{#root}}root{{/root}} {{#directory}}directory{{/directory}}" style="{{^root}}min-height:calc(100vh - 11rem){{/root}}">
+    <div class="folder-box {{#root}}root{{/root}} {{#directory}}directory{{/directory}}" style="position:relative;{{^root}}min-height:calc(100vh - 11rem){{/root}}">
+    <div class="folder-drop-target" aria-hidden="true" style="display:none;position:absolute;inset:0;z-index:10;align-items:center;justify-content:center;background:rgba(0, 112, 232, 0.08);border:2px dashed rgba(0, 112, 232, 0.6);border-radius:6px;color:var(--text-color);font-weight:600;pointer-events:none;">Drop files to upload</div>
     {{#directory}}
     <table class="directory-list {{^contents.length}}empty{{/contents.length}}">
         <thead style="height: 1.4em;">
@@ -76,8 +77,29 @@
           </tr>
           {{/contents}}
         </table>
+
+      <div class="upload-preview-modal" hidden>
+        <div class="upload-preview-modal-backdrop" data-upload-modal-close></div>
+        <div class="upload-preview-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-preview-title">
+          <h2 id="upload-preview-title">Review upload</h2>
+          <ul class="upload-preview-list" data-upload-list="queued"></ul>
+
+          <div class="buttons upload-preview-actions">
+            <button type="button" data-upload-action="upload">Upload</button>
+            <button type="button" data-upload-action="cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
         <script>
           const table = document.querySelector('.directory-list');
+          const folderBox = document.querySelector('.folder-box.directory');
+          const dropTarget = document.querySelector('.folder-drop-target');
+          const uploadModal = document.querySelector('.upload-preview-modal');
+          const uploadModalLists = {
+            queued: uploadModal && uploadModal.querySelector('[data-upload-list="queued"]')
+          };
+          const csrfToken = '{{csrftoken}}';
+          const currentFolderPrefix = normalizeCurrentFolderPrefix(window.location.pathname);
           
           const state = {
             column: null,
@@ -164,6 +186,449 @@
           }
 
           window.sortTable = sortTable;
+
+          function refreshFolderContents(callback) {
+            var xhr = new XMLHttpRequest();
+
+            xhr.onreadystatechange = function () {
+              if (xhr.readyState !== 4) return;
+
+              if (xhr.status === 200) {
+                var parser = new DOMParser();
+                var xml = parser.parseFromString(xhr.responseText, 'text/html');
+                var currentNode = document.querySelector('.live-updates');
+                var newNode = xml.querySelector('.live-updates');
+
+                if (currentNode && newNode) {
+                  currentNode.innerHTML = newNode.innerHTML;
+                  sortTable();
+                }
+              }
+
+              if (typeof callback === 'function') callback();
+            };
+
+            xhr.open('GET', window.location.href, true);
+            xhr.send();
+          }
+
+          function readAllDirectoryEntries(directoryReader) {
+            return new Promise(function (resolve, reject) {
+              var entries = [];
+
+              function readBatch() {
+                directoryReader.readEntries(function (batch) {
+                  if (!batch.length) return resolve(entries);
+                  entries = entries.concat(Array.from(batch));
+                  readBatch();
+                }, reject);
+              }
+
+              readBatch();
+            });
+          }
+
+          function collectDroppedFilesFromEntry(entry, parentPath) {
+            var basePath = parentPath || '';
+
+            if (entry.isFile) {
+              return new Promise(function (resolve, reject) {
+                entry.file(function (file) {
+                  resolve([{ file: file, relativePath: (basePath + file.name).replace(/^\//, '') }]);
+                }, reject);
+              });
+            }
+
+            if (entry.isDirectory) {
+              var nextParent = (basePath + entry.name + '/').replace(/^\//, '');
+              var reader = entry.createReader();
+
+              return readAllDirectoryEntries(reader).then(function (entries) {
+                return Promise.all(entries.map(function (childEntry) {
+                  return collectDroppedFilesFromEntry(childEntry, nextParent);
+                })).then(function (nested) {
+                  return nested.reduce(function (all, set) {
+                    return all.concat(set);
+                  }, []);
+                });
+              });
+            }
+
+            return Promise.resolve([]);
+          }
+
+          function collectDroppedFiles(dataTransfer) {
+            var items = Array.from((dataTransfer && dataTransfer.items) || []);
+            var files = Array.from((dataTransfer && dataTransfer.files) || []);
+
+            if (!items.length) {
+              return Promise.resolve(files.map(function (file) {
+                return { file: file, relativePath: file.name };
+              }));
+            }
+
+            var hasEntrySupport = items.some(function (item) {
+              return item.kind === 'file' && typeof item.webkitGetAsEntry === 'function' && item.webkitGetAsEntry();
+            });
+
+            if (!hasEntrySupport) {
+              return Promise.resolve(files.map(function (file) {
+                return { file: file, relativePath: file.webkitRelativePath || file.name };
+              }));
+            }
+
+            var tasks = items.map(function (item) {
+              if (item.kind !== 'file' || typeof item.webkitGetAsEntry !== 'function') {
+                return Promise.resolve([]);
+              }
+
+              var entry = item.webkitGetAsEntry();
+              if (!entry) return Promise.resolve([]);
+              return collectDroppedFilesFromEntry(entry, '');
+            });
+
+            return Promise.all(tasks).then(function (sets) {
+              return sets.reduce(function (all, set) {
+                return all.concat(set);
+              }, []);
+            });
+          }
+
+          function hasFileDragPayload(dataTransfer) {
+            if (!dataTransfer) return false;
+
+            var items = Array.from(dataTransfer.items || []);
+            if (items.some(function (item) { return item.kind === 'file'; })) {
+              return true;
+            }
+
+            var types = Array.from(dataTransfer.types || []);
+            if (types.some(function (type) { return String(type).toLowerCase() === 'files'; })) {
+              return true;
+            }
+
+            return Array.from(dataTransfer.files || []).length > 0;
+          }
+
+          function isFileDropEvent(event) {
+            return !!(event && hasFileDragPayload(event.dataTransfer));
+          }
+
+          function showDropTarget() {
+            if (dropTarget) {
+              dropTarget.style.display = 'flex';
+            }
+          }
+
+          function hideDropTarget() {
+            if (dropTarget) {
+              dropTarget.style.display = 'none';
+            }
+          }
+
+          function normalizeCurrentFolderPrefix(pathname) {
+            var path = typeof pathname === 'string' ? pathname : '';
+            var marker = '/folder/';
+            var folderIndex = path.indexOf(marker);
+            var folderPath = '';
+
+            if (folderIndex !== -1) {
+              folderPath = path.slice(folderIndex + marker.length);
+            } else if (path === '/folder') {
+              folderPath = '';
+            }
+
+            folderPath = folderPath
+              .replace(/\\/g, '/')
+              .replace(/^\/+/, '')
+              .replace(/\/+$/, '');
+
+            return folderPath ? folderPath + '/' : '';
+          }
+
+          function applyCurrentFolderPrefix(relativePath) {
+            var normalizedRelativePath = String(relativePath || '')
+              .replace(/\\/g, '/')
+              .replace(/^\/+/, '');
+
+            return currentFolderPrefix + normalizedRelativePath;
+          }
+
+          function buildUploadFormData(collectedFiles, options) {
+            var formData = new FormData();
+            var relativePaths = [];
+            var dryRun = !!(options && options.dryRun);
+
+            collectedFiles.forEach(function (entry, index) {
+              var field = 'upload-' + index;
+              var relativePath = applyCurrentFolderPrefix(entry.relativePath);
+
+              formData.append(field, entry.file, entry.file.name);
+              relativePaths.push({
+                field: field,
+                index: 0,
+                relativePath: relativePath
+              });
+            });
+
+            formData.append('relativePaths', JSON.stringify(relativePaths));
+            formData.append('overwrite', 'true');
+            formData.append('dryRun', dryRun ? 'true' : 'false');
+            formData.append('_csrf', csrfToken);
+
+            return formData;
+          }
+
+          function clearList(list) {
+            if (list) list.innerHTML = '';
+          }
+
+          function renderList(list, items, mapFn) {
+            clearList(list);
+            if (!list || !items || !items.length) return;
+
+            items.forEach(function (item) {
+              var li = document.createElement('li');
+
+              if (mapFn) {
+                var mapped = mapFn(item, li);
+                if (typeof mapped === 'string') li.textContent = mapped;
+              } else {
+                li.innerHTML = `<span class="icon-file-check"></span> ${item}`;
+              }
+
+              list.appendChild(li);
+            });
+          }
+
+          function renderUploadPreview(collectedFiles, preview) {
+            var overwritePaths = (preview && preview.overwrite) || [];
+            var overwriteSet = new Set(overwritePaths);
+
+            renderList(uploadModalLists.queued, collectedFiles, function (entry, li) {
+              li.textContent = entry.relativePath;
+
+              if (overwriteSet.has(entry.relativePath)) {
+                var marker = document.createElement('span');
+                marker.className = 'upload-preview-overwrite-marker';
+                marker.textContent = 'Will overwrite existing file';
+                li.appendChild(document.createTextNode(' '));
+                li.appendChild(marker);
+              }
+            });
+          }
+
+          function resetUploadModalButtonState() {
+            if (!uploadModal || typeof uploadModal.querySelectorAll !== 'function') return;
+            Array.from(uploadModal.querySelectorAll('[data-upload-action]')).forEach(function (actionButton) {
+              actionButton.disabled = false;
+              actionButton.classList.remove('working');
+            });
+          }
+
+          function openUploadModal() {
+            if (!uploadModal) return;
+            if (typeof resetUploadModalButtonState === 'function') {
+              resetUploadModalButtonState();
+            }
+            uploadModal.hidden = false;
+            document.body.classList.add('upload-modal-open');
+          }
+
+          function closeUploadModal() {
+            if (!uploadModal) return;
+            uploadModal.hidden = true;
+            document.body.classList.remove('upload-modal-open');
+            if (typeof resetUploadModalButtonState === 'function') {
+              resetUploadModalButtonState();
+            }
+          }
+
+          function collectFailures(result) {
+            var failures = [];
+
+            ((result && result.results) || []).forEach(function (entry) {
+              if (entry.skipped) {
+                failures.push(entry.path + ' — skipped (overwrite disabled)');
+              } else if (entry.local && entry.local.success === false) {
+                failures.push(entry.path + ' — local write failed: ' + (entry.local.error || 'Unknown error'));
+              } else if (entry.client && entry.client.success === false) {
+                failures.push(entry.path + ' — remote sync failed: ' + (entry.client.error || 'Unknown error'));
+              }
+            });
+
+            ((result && result.rejected) || []).forEach(function (entry) {
+              var label = entry.relativePath || entry.filename || '(unknown file)';
+              failures.push(label + ' — rejected: ' + (entry.reason || 'unknown'));
+            });
+
+            return failures;
+          }
+
+          function commitUpload(collectedFiles) {
+            return fetch('{{{base}}}/folder/upload', {
+              method: 'POST',
+              body: buildUploadFormData(collectedFiles, { dryRun: false })
+            })
+              .then(function (response) {
+                if (!response.ok) throw new Error('Upload failed');
+                return response.json();
+              })
+              .then(function (result) {
+                collectFailures(result);
+                closeUploadModal();
+
+                refreshFolderContents();
+              });
+          }
+
+          function uploadDroppedFiles(collectedFiles) {
+            if (!collectedFiles.length) return Promise.resolve();
+
+            var normalizedEntries = collectedFiles.map(function (entry) {
+              return {
+                file: entry.file,
+                relativePath: applyCurrentFolderPrefix(entry.relativePath)
+              };
+            });
+
+            return fetch('{{{base}}}/folder/upload?dryRun=1', {
+              method: 'POST',
+              body: buildUploadFormData(normalizedEntries, { dryRun: true })
+            })
+              .then(function (response) {
+                if (!response.ok) throw new Error('Upload dry-run failed');
+                return response.json();
+              })
+              .then(function (preview) {
+                renderUploadPreview(normalizedEntries, preview);
+                openUploadModal();
+
+                return new Promise(function (resolve, reject) {
+                  var finished = false;
+                  var isSubmitting = false;
+
+                  function setModalActionButtonsDisabled(disabled) {
+                    if (!uploadModal || typeof uploadModal.querySelectorAll !== 'function') return;
+
+                    Array.from(uploadModal.querySelectorAll('[data-upload-action]')).forEach(function (actionButton) {
+                      actionButton.disabled = disabled;
+                    });
+                  }
+
+                  function cleanup() {
+                    if (uploadModal) uploadModal.removeEventListener('click', onClick);
+                  }
+
+                  function finish(done, value) {
+                    if (finished) return;
+                    finished = true;
+                    cleanup();
+                    done(value);
+                  }
+
+                  function onClick(event) {
+                    if (isSubmitting) return;
+
+                    var close = event.target.closest('[data-upload-modal-close]');
+                    if (close) {
+                      closeUploadModal();
+                      finish(resolve);
+                      return;
+                    }
+
+                    var button = event.target.closest('[data-upload-action]');
+                    if (!button) return;
+
+                    var action = button.getAttribute('data-upload-action');
+                    if (action === 'cancel') {
+                      closeUploadModal();
+                      finish(resolve);
+                      return;
+                    }
+
+                    if (action !== 'upload') return;
+
+                    isSubmitting = true;
+                    setModalActionButtonsDisabled(true);
+
+                    commitUpload(normalizedEntries).then(function () {
+                      isSubmitting = false;
+                      setModalActionButtonsDisabled(false);
+                      finish(resolve);
+                    }).catch(function (err) {
+                      isSubmitting = false;
+                      setModalActionButtonsDisabled(false);
+                      finish(reject, err);
+                    });
+                  }
+
+                  if (uploadModal) {
+                    uploadModal.addEventListener('click', onClick);
+                  } else {
+                    finish(resolve);
+                  }
+                });
+              });
+          }
+
+          var dragDepth = 0;
+
+          function resetDropState() {
+            dragDepth = 0;
+            hideDropTarget();
+          }
+
+          window.addEventListener('dragover', function (event) {
+            if (isFileDropEvent(event)) {
+              event.preventDefault();
+            }
+          });
+
+          window.addEventListener('drop', function (event) {
+            event.preventDefault();
+
+            resetDropState();
+
+            if (!isFileDropEvent(event)) {
+              return;
+            }
+
+            collectDroppedFiles(event.dataTransfer)
+              .then(uploadDroppedFiles)
+              .catch(function (error) {
+                console.error(error);
+              });
+          });
+
+          if (folderBox && dropTarget) {
+            folderBox.addEventListener('dragenter', function (event) {
+              if (!isFileDropEvent(event)) return;
+              event.preventDefault();
+              dragDepth += 1;
+              showDropTarget();
+            });
+
+            folderBox.addEventListener('dragover', function (event) {
+              if (!isFileDropEvent(event)) return;
+              event.preventDefault();
+              showDropTarget();
+            });
+
+            folderBox.addEventListener('dragleave', function (event) {
+              if (!isFileDropEvent(event)) return;
+              event.preventDefault();
+              dragDepth = Math.max(0, dragDepth - 1);
+              if (dragDepth === 0) {
+                hideDropTarget();
+              }
+            });
+
+            folderBox.addEventListener('drop', function (event) {
+              event.preventDefault();
+              resetDropState();
+            });
+          }
       
           // add sorting to the directory list
           document.querySelectorAll('.directory-list th').forEach(function (header) {
