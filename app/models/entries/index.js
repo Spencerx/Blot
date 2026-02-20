@@ -5,6 +5,7 @@ var Entry = require("../entry");
 var DateStamp = require("../../build/prepare/dateStamp");
 var Blog = require("../blog");
 var pathIndex = require("./pathIndex");
+var normalizePathPrefix = require("helper/pathPrefix").normalizePathPrefix;
 
 var MAX_RANDOM_ATTEMPTS = 10;
 
@@ -436,17 +437,6 @@ module.exports = (function () {
 
 
 
-  function normalizePathPrefix(pathPrefix) {
-    if (typeof pathPrefix !== "string") return null;
-
-    pathPrefix = pathPrefix.trim();
-    if (!pathPrefix) return null;
-
-    if (pathPrefix[0] !== "/") pathPrefix = "/" + pathPrefix;
-
-    return pathPrefix;
-  }
-
   function fetchEntryScores(blogID, entryIDs, callback) {
     if (!entryIDs.length) return callback(null, []);
 
@@ -475,6 +465,7 @@ module.exports = (function () {
       callback(null, withScores);
     });
   }
+
 
   function getPrefixFilteredPage(
     blogID,
@@ -536,7 +527,17 @@ module.exports = (function () {
         }
 
         scoredEntries.sort(function (a, b) {
-          return order === "asc" ? b.score - a.score : a.score - b.score;
+          var scoreDifference = order === "asc" ? b.score - a.score : a.score - b.score;
+
+          if (scoreDifference !== 0) return scoreDifference;
+
+          // Redis-compatible tie handling: equal scores are ordered by member
+          // lexicographically (reverse for ZREVRANGE semantics, forward for ZRANGE).
+          if (a.id === b.id) return 0;
+
+          if (order === "asc") return a.id < b.id ? 1 : -1;
+
+          return a.id < b.id ? -1 : 1;
         });
 
         totalEntries = scoredEntries.length;
